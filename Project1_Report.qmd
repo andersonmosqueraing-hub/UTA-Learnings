@@ -1,0 +1,474 @@
+---
+title: "DSC 395 - Project 1 Report"
+format: html
+---
+
+## Anderson Mosquera am238978
+
+
+
+## Setup
+
+```{r setup}
+#| include: false
+
+## Load the tidyverse package
+library(tidyverse)
+
+## If you need to load other packages, place that code below here.
+library(lubridate)
+library(ggplot2)
+```
+
+```{r}
+#| message: false
+
+## Loading all the data files
+## DO NOT CHANGE THIS CODE
+championships <- read_tsv("WCA_export_championships.tsv.bz2")
+competitions <- read_tsv("WCA_export_Competitions.tsv.bz2")
+continents <- read_tsv("WCA_export_Continents.tsv.bz2")
+countries <- read_tsv("WCA_export_Countries.tsv.bz2")
+eligible_country_iso2s_for_championship <- 
+  read_tsv("WCA_export_eligible_country_iso2s_for_championship.tsv.bz2")
+events <- read_tsv("WCA_export_Events.tsv.bz2")
+formats <- read_tsv("WCA_export_Formats.tsv.bz2")
+persons <- read_tsv("WCA_export_Persons.tsv.bz2")
+ranksaverage <- read_tsv("WCA_export_RanksAverage_333.tsv.bz2")
+rankssingle <- read_tsv("WCA_export_RanksSingle_333.tsv.bz2")
+results <- read_tsv("WCA_export_Results_333.tsv.bz2")
+roundtypes <- read_tsv("WCA_export_RoundTypes.tsv.bz2")
+scrambles <- read_tsv("WCA_export_Scrambles.tsv.bz2")
+```
+
+
+## Required Questions
+
+
+### Active Speed Cubers
+
+How many active (3x3x3) speedcubers are there registered with the WCA? 
+
+For this question an *active speeedcuber* is defined as any person registered in the WCA who has competed in at least two competitions in the years 2022--2024. 
+
+
+```{r}
+#| results: asis
+df <- results |>  left_join( competitions, by = c("competitionId" = "id")) |> 
+  filter (year >=2022 & year <=2024) |> 
+  group_by(personId) |>   
+  summarize(total_competitions = n_distinct(competitionId)) |>
+  ungroup() |>
+  filter(total_competitions >1) |> 
+  inner_join(persons[persons$subid == 1, ], by = c("personId" = "id")) |>
+  select (personId) |>
+  summarise(Total = n_distinct(personId))
+cat(sprintf("The total amount of active speedcubers is:  **%s**", df$Total[1]))
+  
+```
+
+
+
+**Analysis.**
+
+For this question I was thinking, How would I solve it in SQL?  
+
+I approached this by building a query to get participation by person:  
+
+* Performed a `left_join` between `results` and `competitions` using the competition ID to associate each solve with its respective year.
+* Filtered the dataset to include only records from competitions held between 2022 and 2024.
+* Grouped the data by `personId` and calculated the count of unique `competitionId` for each individual.
+* Executed an `inner_join` with the `persons` table to ensure I only included officially registered WCA members.
+* Filtered the list to retain only speedcubers who participated in more than one competition.
+* Ran a *distinct count* on the remaining `personId` to reach the answer.
+
+
+
+{{< pagebreak >}}
+
+### World Records
+
+This question has two parts:
+
+1. According to the data, who holds the world record single best solve? On what date was this record set? 
+
+
+```{r}
+#| results: asis
+df <- results |> filter (best != -1) |> arrange(best)
+cat(sprintf("The world record single best solve is held by:  **%s**",
+            df$personName[1]))
+
+```
+
+**Analysis** 
+
+
+I ordered the results table based on the column `best` in ascending order, excluding -1 times (attempts). **The Top 1** row of the resulting table is my answer.
+
+
+
+On what date was this record set?
+
+```{r}
+#| results: asis
+df <- results |> filter (best != -1) |> arrange(best) |>
+  left_join(competitions, by = c("competitionId" = "id")) |>
+  select (year, month, day)
+
+DateN = df$year[1]*10000 + df$month[1]*100 + df$day[1]
+date <- ymd(DateN)
+cat(sprintf("The world record single best solve was set on:  **%s**", 
+            date))
+
+```
+
+**Analysis**
+
+To determine the record date, I used the previous logic and performed a left join with the `competitions` dataset. I then calculated a numeric date representation from the `year`, `month`, and `day`, which I converted into a formal date object using *lubridate*.
+
+
+2. According to the data, who previously held the world record best single solve? 
+
+```{r}
+#| results: asis
+df <- results |> filter (best != -1) |>
+  left_join(competitions, by = c("competitionId" = "id")) |>
+  select (year, month, day, personId, personName, best) |>
+  mutate(date = ymd(year*10000 + month*100 + day)) |>
+  arrange(best)
+df_top <- head(df,n = 1)
+df_previous <- head(filter(df, df$date < df_top$date) |> arrange(best),1)
+  
+
+cat(sprintf("The previous world record single best solve was set by:  **%s**", 
+            df_previous$personName[1]))
+
+```
+
+On what date did they set it?
+
+```{r}
+#| results: asis
+cat(sprintf("The previous world record single best solve was set on:  **%s**", 
+            df_previous$date[1]))
+
+```
+
+**Analysis** 
+
+This whole question could be answered by taking the previous response and looking for the next best time that appeared before the one set by the current owner of the world record. To obtain that, I performed the following: 
+
+* Filtered all the rows to be **older** than the new world record. 
+* Ordered by the best time ascending. 
+* Took the **first row** of the resulting data, and that was the previous World Record holder.
+
+
+
+{{< pagebreak >}}
+
+NOTE: For these questions, consider all speedcubers (not just active ones) and define "best" as the fastest time for a single solve (not for an average).
+
+
+
+### Regional Rankings
+
+This question has two parts:
+
+1. Amongst all speedcubers, who is the top ranked male speedcuber (for best single solve) in Australia?
+
+```{r}
+#| results: asis
+df <- head(rankssingle |> 
+  left_join(persons, by =c("personId" = 'id')) |>
+  filter(countryId == "Australia" & gender == "m" & !is.na(best) & countryRank >0  ) |>        
+  arrange(countryRank), n=1)
+  
+cat(sprintf("The top ranked male speedcuber in Australia is: **%s**", 
+            df$name[1]))
+
+```
+
+**Analysis**
+
+For this question, I used the `ranksingle` table along with the `persons` table.  
+
+* First, I joined the `ranksingle` and the `persons` tables.
+* After that, I filtered by `gender` and `countryId`.
+* Then, I sorted the `ranksingle` table by `countryRank` in ascending order.
+* Finally, I took the *Top 1*, excluding blank and incoherent values.
+
+
+2. Amongst all speedcubers, who is the top ranked female speedcuber (for best single solve time) in Europe?
+
+NOTE: Europe is identified under the `continentId` column of the `countries` table.
+
+
+```{r}
+#| results: asis
+df <- head(rankssingle |> 
+  left_join(persons, by =c("personId" = 'id')) |>
+  mutate ( PersonName = name) |>
+  select (continentRank, best, PersonName, gender, countryId) |> 
+  left_join(countries, by = c("countryId" = "id")) |>
+  select (continentRank, best, PersonName, gender, continentId) |> 
+  left_join(continents, by =c("continentId" = "id")) |>
+  select (continentRank, best, PersonName, gender, name) |> 
+  filter(name == "Europe" & gender == "f" & !is.na(best) & continentRank >0  ) |>        
+  arrange(continentRank), n=1)
+
+cat(sprintf("The top ranked female speedcuber in Europe is: **%s**", 
+            df$PersonName[1]))
+```
+
+
+
+**Analysis**
+
+For this question, I used a similar logic to the one used in the previous question with a few tweaks.
+
+* I filtered by `gender` differently and instead of `country`, I used `name` from the `continents` table, ensuring I joined it with `persons` through the `countries` table (because I'm interested in the person's continent). 
+* Finally, I sorted the `ranksingle` table by `continentRank` in ascending order and took as my answer the **Top 1** row, excluding blank and incoherent values. 
+
+For this to work I had to insert various *select*  and *mutate* statements to avoid confusion with column names down the pipeline.
+
+
+{{< pagebreak >}}
+
+### Time Until Sub-5
+
+Having a time below 5 seconds is considered an elite achievement and most speedcubers have to complete a large number of solves before they can obtain a sub-5 second solve. 
+
+1. For the current top 10 speedcubers in the world (as recorded in the `RanksSingle` table), on average, how many solves did they have to do before achieving a sub-5 second solve?
+
+**NOTE**: Each round of a competition has 5 solves that should be considered separately when counting the number of solves.
+
+
+```{r}
+#| results: asis
+df <- results |>
+  select(competitionId, personId, competitionId, roundTypeId, value1, 
+         value2, value3, value4, value5) |>
+  pivot_longer(
+    cols = c(value1, value2, value3, value4, value5),
+    names_to = "Attribute", 
+    values_to = "Value") |>
+  left_join(roundtypes, by=c("roundTypeId"="id")) |>
+  left_join(rankssingle, by=c("personId"="personId")) |>
+  left_join(competitions, by=c("competitionId" = "id")) |>
+  mutate(date = ymd(year*10000 + month*100 + day)) |>
+  select(personId,worldRank, Value, Attribute, rank, date) |>
+  filter(Value > 0  & worldRank < 11)
+```
+
+```{r}
+#| results: asis
+df_ranked <- df |> group_by(personId) |>
+  arrange(date,  rank, Attribute, .by_groupp = TRUE) |>
+  mutate(ranking = row_number()) |>
+  filter(Value < 500) |>
+  arrange(ranking) |>
+  group_by(personId) |>
+  summarize(first_time_sub_500 =min(ranking))
+
+cat(sprintf("On average the Top 10 speedcubsters got to a sub-5 solve in
+            **%s** valid attempts",  mean(df_ranked$first_time_sub_500)))
+```
+
+**Analysis**
+
+For this exercise, I performed several steps: 
+
+* First, I **unpivoted** (made the table long instead of wide) the `results` table to see each solve as an individual row (removing some columns).
+* I made sure to join with `ranksingle` and obtained the Top 10 speedsters.
+* Also, I joined with the `roundtypes` table to know the rank order and with the `competitions` dataset to know the date of the competition to perform a more robust ranking.
+* I created a `ranking` column on the resulting table for each person using as sorting criteria the `date`, `rank` (round type), and `Attribute` (order of the attempts) **in that order**.
+* Then, I filtered to get only the records where `Value` was less than 500.
+* I selected the minimum value of the `ranking` column by `personId` using the *group by* and the *summarize* functions.
+* Finally, my answer is the average of those values
+
+
+I want to make a notable mention to **Yiheng Wang (王艺衡)** who got to a sub-5 solve for the first time in just **94 attempts**
+
+
+
+2. For **one** of the top 10 speedcubers make a scatterplot of their individual single solve times vs. the date of the solve, with date on the x-axis and solve time on the y-axis. 
+
+
+```{r}
+#| results: asis
+df <- df|>filter(personId == "2016KOLA02") 
+ggplot(df, aes(x = date, y = Value)) +
+  geom_point() +
+  labs(title = "Solve evolution of Tymon Kolasiński",
+       subtitle = "Tymon ranks 5th worldwide",
+       y = "Time to solve [ms]") +
+  theme_bw ()
+```
+**Analysis**
+
+It can be seen from the plot how **his solve time decreased over time** and stabilized towards 2022. It can also be seen that the first time he got a sub-5 time was around **summer 2019**.
+
+{{< pagebreak >}}
+
+### Up-and-Coming Speed Cubers
+
+Which speed cubers **not** in the top 10,000 (worldwide for single best time) should we keep an eye on for the near future? 
+
+The idea here is to identify "up-and-coming" speedcubers who are not yet achieving elite times. Come up with a list of **five** speedcubers (provide their names and WCA IDs) that you have identified as "up-and-coming". There is no one way to answer this question and the goal is to provide an analysis of the data that justifies the selection of your five names.
+
+```{r}
+#| results: asis
+# Here I create the solves table for the Top 10 speedcubers
+df <- results |> 
+  select(competitionId, personId, competitionId, roundTypeId, value1, 
+         value2, value3, value4, value5) |>
+  pivot_longer(
+              cols = c(value1, value2, value3, value4, value5),
+              names_to = "Attribute", 
+              values_to = "Value") |>
+  left_join(roundtypes, by=c("roundTypeId"="id")) |>
+  left_join(rankssingle, by=c("personId"="personId")) |>
+  left_join(competitions, by=c("competitionId" = "id")) |>
+  mutate(date = ymd(year*10000 + month*100 + day)) |>
+  select(personId,worldRank, Value, Attribute, rank, date) |>
+  filter(Value > 0) |>
+  group_by(personId) |>
+  arrange(date,  rank, .by_groupp = TRUE) |>
+  mutate(ranking = row_number()) |>
+  ungroup()
+
+# Getting the sub-5 metrics for the Top every speedcubers
+df_sub_5_solves <- df |> filter(Value < 500) |>
+  arrange(ranking) |>
+  group_by(personId) |>
+  summarize(first_time_sub_500 =min(ranking))
+
+# Adding the he regression parameters for the solves before the Top 10 reach sub-5 times
+df_regression <- head(df |> filter(worldRank <11) |> left_join(df_sub_5_solves, by="personId") |>
+  select(everything(), first_time_sub_500) |>
+  filter(ranking < first_time_sub_500) |>
+  group_by(personId) |>
+  summarize(intercept = coef(lm(Value ~ ranking))[1], 
+            slope = coef(lm(Value ~ ranking))[2], first_time_sub_500 = n()) |>
+  arrange(intercept), n=8) #taking only Top 10 to reduce noise on averages and SD
+
+# Averages and Standard Deviations as Variables 
+slope_a = mean(df_regression$slope)
+slope_sd = sd(df_regression$slope)
+
+intercept_a = mean(df_regression$intercept)
+intercept_sd = sd(df_regression$intercept)
+
+first_time_sub_500_a = mean(df_regression$first_time_sub_500)
+first_time_sub_500_sd = sd(df_regression$first_time_sub_500)
+```
+
+```{r}
+#| redfsults: asis
+# Plot the model- Top 10 speecubers before they reached sub-5 times,
+# Excluding records that deviate the model
+
+df_model_plot <- df |> filter(personId %in% df_regression$personId) |> 
+  left_join(df_sub_5_solves, by="personId") |>
+  select(everything(), first_time_sub_500) |> 
+  filter(ranking < first_time_sub_500)
+ggplot(df_model_plot, aes(x = date, y = Value, color = personId)) +
+  geom_point() +
+  labs( y = "Time to solve [ms]") +
+  theme_bw () 
+```
+
+
+```{r}
+#| results: asis
+# Filtering out speedcubers according to criteria
+df_SC_Not_sub_500 <- df |> filter(worldRank >10000) |> 
+  filter(year(date) > 2021 & year(date) < 2025) |> 
+  left_join(df_sub_5_solves, by = "personId") |> 
+  filter(is.na(first_time_sub_500)) |> 
+  group_by(personId) |>
+  summarize(total_number_of_Solves = max(ranking)) |> 
+  filter (total_number_of_Solves < first_time_sub_500_a + first_time_sub_500_sd) 
+
+# Performing the linear regression on the candidate's data
+df_SC_Not_Ranked <-  df |> filter(year(date) > 2021 & year(date) < 2025) |>
+  inner_join(df_SC_Not_sub_500, by = "personId") |>
+  select(everything(),total_number_of_Solves ) |>
+  group_by(personId) |>
+  summarize(intercept = coef(lm(Value ~ ranking))[1], 
+            slope = coef(lm(Value ~ ranking))[2], total_solves = n()) |>
+  filter(intercept <= intercept_a+intercept_sd    
+       & intercept >= intercept_a-intercept_sd    
+       & slope< slope_a + slope_sd 
+       & slope > slope_a - slope_sd ) |>   
+  arrange(slope , intercept, desc(total_solves))
+
+# Obtaining unique competition and filtering by that
+unique_competition <- df |> filter(year(date) > 2021 & year(date) < 2025) |> 
+  group_by(personId) |>                                                     
+  summarize(total_competitions = n_distinct(date))                           
+
+df_SC_Not_Ranked <- df_SC_Not_Ranked |> left_join(unique_competition, by = "personId") |> 
+  filter(total_competitions>5)
+```
+
+
+```{r}
+#| redfsults: asis
+# Ploting the results to visualize analize the prospects
+df_plot <- df |> filter(year(date) > 2021 & year(date) < 2025) |> 
+  filter(personId %in% df_SC_Not_Ranked$personId)
+ggplot(df_plot, aes(x = date, y = Value)) +
+  geom_point() +
+  labs( y = "Time to solve [ms]") +
+  theme_bw () +
+  facet_wrap(~personId, ncol = 8)
+```
+**Analysis**
+
+
+The core idea was to make a **linear model out of  the current Top 10's trajectory towards sub-5 times** and use that model to identify future talent. The performance of a prospect had to meet **certain criteria**:  
+
+1. They **could not exceed** the average number of solves it took the Top 10 to reach sub-5 times.
+2. Their linear model's **slope** had to be within one standard deviation of the average of the Top 10 speedcubers before they reached sub-5 times.
+3. Their linear model's **intercept** had to be within one standard deviation of the average of the Top 10 before they reached sub-5 times.
+4. Their latest record had to appear between 2022 and 2024.
+
+
+To obtain the 5 prospects, I performed the following steps with the data:  
+
+* Using a dataset similar to the one used in the previous question, I ran a linear regression on each of the Top 10 ranked speedcubers **before** the solve where they reached sub-5 times.
+* Created a table to hold the slope, intercept, and number of solves before they reached sub-5 times for each of the Top 10 speedcubers.
+* Calculated the average and standard deviation of the slope, intercept, and number of solves they took to reach sub-5 times storing them in variables for later comparison.
+* **Filtered** the bottom 10,000 in a separate table, obtained their total number of solves, and filtered again to only those who met criteria *#1*.
+* **Filtered** their information to ensure they met criteria *#4*, also removing speedcubers that had already reached sub-5 times.
+* Applied a **linear regression** on each one of the resulting prospects to obtain their slope and intercept.
+* Compared their slope and intercept to criteria *#2* and *#3*.
+
+Upon running, and evaluating I discovered that additional criteria were needed:  
+
+* For the Top 10 model, I identified that the standard deviations for the slope and intercept were initially **skewed by outliers**. I removed the two highest intercept values and recomputed the average and deviation to create a better model to compare against.  
+* For the speedcubers not in the Top 10,000, I also obtained the number of competitions attended, and proceeded with the ones that participated in at least 6 as a reward for consistency.
+
+Finally, I plotted the regression of the resulting dataset, containing 31 participants and visually selected the prospects, using as criteria their similarity to the Top 10 model and their overall closeness to the end of the timeline (more recent ones were favored).
+
+From the image, I think these are the most promising speedcubers:  
+
+* **2023CHIF01**  
+* **2021ZAFE01**  
+* **2022PACI02**  
+* **2017HALL01**  
+* **2018VIYA01**  
+
+
+
+## Discussion
+
+
+I know  Power BI, so I used power BI to validate my logic and my results.
+One of the most challenging parts was joining the tables and designing the logic around those joins. For some questions, my first iteration was to write what I would do in SQL, and plain english to clear my ideas and then start building on top of that.
+
+I think this assignment was a lot about using what we learned in R, put it into practice with a real, messy and complex dataset and getting to see that we *could* do, so that when we see a dataset next time and have to manipulate it we are comfortable doing so. 
+
+I feel comfortable extracting insights from messy datasets using SQL, Power BI or Excel, and I feel good doing it in R now too.
