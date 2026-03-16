@@ -1,0 +1,415 @@
+---
+title: "DSC 395 - Project 2 Report"
+format: html
+---
+
+## Anderson Mosquera am238978
+
+### Setup
+
+Read in the data with `read_csv()` and store the data as an R object named `dataset`. Check the data to make sure all of the expected observations and variables are there.
+
+
+```{r}
+#| message: false
+## Load the data and any necessary packages here.
+library(readr)
+library(ggplot2)
+library(broom)
+library(dplyr)
+dataset <- read_csv("maacs.csv")
+
+```
+
+The variables are:  
+
+* `id` a random string identifying a participant
+* `age` age in years for the participant at the beginning of the study
+* `gender` self-reported gender for the child
+* `fev1` forced expiratory volumen in 1 second. This is the amount of air that the child
+could expel from their lungs in one second. It is often used as a measurement of lung
+function and lung health. Higher values of FEV1 are considered more healthy but it is
+dependent on the size of the person. The variable is measured in liters.
+* `eNO` exhaled nitric oxide. This is a measure that is used to indicate the amount of
+inflammation in the lungs. Higher values indicate more inflammation. eNO is measured
+in parts per billion.
+* `cough_days` the number of days in the past 2 weeks where the child experienced coughing
+or wheezing. This is a count of days and ranges from 0 to 14.
+* `pm25the` level of particulate matter less than 2.5 𝜇m in diameter inside the home. PM2.5
+is sometimes referred to as “fine particulate matter” and is a measure of indoor air
+pollution. PM2.5 is measured in 𝜇g/m3.
+* `no2` the level of nitrogen dioxide inside the home. Nitrogen dioxide is an indoor pollutant
+that can be produced, for example, by burning natural gas. NO2 is measured in parts
+per billion.
+* `mouse` the level of mouse allergen in the child’s bed. The units of mouse allergen are not
+particularly interpretable, but higher values indicate higher amounts.
+* `mouse_allergic` an indicator of whether the child is allergic to mouse allergen (“yes”)
+or not allergic (“no”). Allergic status is determined using a skin prick test.
+
+
+## Part 1
+
+We will first consider the relationship between FEV1 and age. In general, it is expected that as children get older (and hence, larger in size), their FEV1 values should get higher. Verify this by fitting a linear regression model with FEV1 as the outcome and age as a predictor.
+
+How much does FEV1 change for a 1-year increase in the child's age? (Write your answer below the code block.)
+
+```{r}
+fit_FEV1_age <-lm(fev1 ~ age, data = dataset)
+fit_FEV1_age
+```
+
+Based on that there is indeed a positive relationship between the age and `FEV1` variables, indicating that as `age` increases so do the `FEV1` values.
+
+A 1 year increase changes by 0.17 the `FEV1` variable
+
+ 
+
+## Part 2
+
+Make a scatterplot of FEV1 on the y-axis and age on the x-axis. Overlay the fitted regression line using the fitted model from Part 1.
+
+How would you characterize the fit of the regression line to the data? Is there anything unexpected in the plot?
+
+
+
+```{r}
+#| results: asis
+#| warning: false
+ggplot()+
+  geom_point(data = dataset, aes(x = age, y = fev1, color = "Original Data")) +
+  geom_point(data = augment(fit_FEV1_age), aes(x = age, y = .fitted, color = "Fitted Values")) +
+  labs(title = "Scatterplot of FEV1 vs Age",
+       x = "Age (Years)",
+       y = "FEV1 (L)") +
+  theme_bw ()+
+  scale_color_manual(name = "Legend", 
+                     values=c("Original Data" = "green", "Fitted Values" = "blue"))
+```
+I think the fitted regression line is good at capturing the relationship between `FEV1` and `age` but the variability of the datapoints is higher towards higher `age` values, meaning for similar `age` values there are several possible `FEV1` values.
+
+
+
+## Part 3
+
+Make a scatterplot of the fitted values (x-axis) from the regression model and the residuals (y-axis). 
+
+1. Describe the pattern of the residuals in this plot.
+
+2. Recall the assumptions required for making inference from a linear model. Do any of those assumptions appear to be violated?
+
+
+```{r}
+#| results: asis
+#| warning: false
+ggplot()+
+  geom_point(data = augment(fit_FEV1_age), aes(x = .fitted, y = .resid)) +
+  labs(title = "Scatterplot of residuals vs fitted values from FEV1~age",
+       x = "fitted FEV1 Values",
+       y = "residuals") +
+  theme_bw ()
+```
+
+
+I see that the residuals are all around 0 but there is high variability among them particularly in the bigger fitted `FEV1` where they tend to go more negative.
+Based on the assumptions I would say that the errors depend on `age` (our X variable), because higher values of `age` are correlated with higher `FEV1` values, and we see more negative residual values at higher `FEV1` values (so higher ages), so this regression would violate the initial assumptions.
+
+
+## Part 4
+
+In previous studies, males have tended to have higher FEV1 values than females. Fit a linear regression model with FEV1 as the outcome and gender as the predictor. **Using the results of the model fit**, answer the following questions:
+
+1. On average in this dataset, which gender has higher FEV1 values?
+
+2. On average in this dataset, what is the difference in FEV1 values between males and females?
+
+NOTE: For both of these questions, you are **not** being asked to make a statistical inference. 
+
+```{r}
+#| warning: false
+fit_FEV_gender <- lm(fev1 ~ gender, data = dataset)
+fitted_table_fev1_gender <- augment(fit_FEV_gender) |> group_by(gender) |> 
+  summarize(mean_fitted = mean(.fitted, na.rm=TRUE))
+knitr::kable(fitted_table_fev1_gender)
+```
+
+1. On average females have a higher `FEV1` value than males using the fitted value
+
+
+```{r}
+#| results: asis
+difference <- 
+  fitted_table_fev1_gender$mean_fitted[fitted_table_fev1_gender$gender=="female"]-
+  fitted_table_fev1_gender$mean_fitted[fitted_table_fev1_gender$gender == "male"]
+cat("2. On average the difference between the fitted `FEV1` values from females and males is: ", difference)
+```
+
+
+## Part 5
+
+Now fit a linear regression model with FEV1 as the outcome and gender *and* age as predictors. Using the results of the model fit, answer the following questions:
+
+
+1. On average in this dataset, which gender has higher FEV1 values when age is held constant?
+
+2. On average in this dataset, what is the difference in FEV1 values between males and females, when age is held constant?
+
+
+
+```{r}
+#| results: asis
+fit_FEV_gender_age <- lm(fev1 ~ gender+age, data = dataset)
+fitted_table_fev1_gender_age <- augment(fit_FEV_gender_age) 
+
+predictions_dataset <- tibble(age_ = 1:17) |> 
+  mutate(
+    female_fitted = predict(fit_FEV_gender_age, newdata = data.frame(age = age_, gender = "female")),
+    male_fitted = predict(fit_FEV_gender_age, newdata = data.frame(age = age_, gender = "male")) ) |> 
+  group_by() |> 
+  summarize(mean_fitted_female = mean(female_fitted),
+            mean_fitted_male=mean(male_fitted) )
+knitr::kable(predictions_dataset)
+```
+
+
+1. On average males have a higher `FEV1` values when the age is held constant.
+
+```{r}
+#| results: asis
+difference <- predictions_dataset$mean_fitted_male-predictions_dataset$mean_fitted_female
+cat("2. The average difference in `FEV1` values when `age` is held constant is: ", difference)
+```
+
+
+*Discussion*
+
+I created the datasets summarizing the information, but later discovered I could've used the model description to quickly know the answer to both questions, I just didn't know how to interpret them. Upon learning I discovered that my answers were correct.
+
+
+## Part 6
+
+We will now move to looking at the eNO variable. 
+
+1. Make a scatterplot of eNO (y-axis) and age (x-axis). Briefly describe the relationship between eNO and age.
+
+```{r}
+#| results: asis
+#| warning: false
+ggplot()+
+  geom_point(data = dataset, aes(x = age, y = eNO), color = "green") +
+  labs(title = "Scatterplot of eNO vs Age",
+       x = "Age (Years)",
+       y = "eNO (ppb)") +
+  theme_bw ()
+```
+
+
+It may appear that there is a **slight positive linear relationship between `eNO` and `age`**, however there is a lot of variability in the data (i.e. for the same `age`, `eNO` is spread across several values), making the relationship difficult to assess visually.
+
+
+2. Fit a linear model with eNO as the outcome and age as the predictor variable. Overlay the fitted regression line on the scatterplot of eNO and age. How would you characterize the quality of the fit of this model? Do any of the linear regression model assumptions appear to be violated?
+
+
+```{r}
+#| results: asis
+#| warning: false
+fit_eNO_age <-lm(eNO ~ age, data = dataset)
+ggplot()+
+  geom_point(data = dataset, aes(x = age, y = eNO, color = "Original Data")) +
+  geom_point(data = augment(fit_eNO_age), aes(x = age, y = .fitted, color = "Fitted Values")) +
+  labs(title = "Scatterplot of eNO vs Age",
+       x = "Age (Years)",
+       y = "eNO (ppb)") +
+  theme_bw ()+
+  scale_color_manual(name = "Legend", 
+                     values=c("Original Data" = "green", "Fitted Values" = "purple"))
+```
+
+Based on the plot of the fitted values and the actual data I would say the linear regression seems to be doing a good job at describing the relationship between `eNO` and `age`, however I think the residuals will not describe a normal distribution because most of the actual datapoints are close below the fitted line making a lot of small negative residuals, and the ones sitting on top of the fitted line are far away from it, making few very positive residuals, so in the the end the distribution of the residuals will be skeweed to the right (more negative values) as I show on the plot below, **violating one of the assumptions of the linear regression**.
+
+```{r}
+#| results: asis
+#| warning: false
+ggplot(augment(fit_eNO_age), aes(x = .resid)) +
+  geom_histogram(bins = 30) +
+  labs(title = "Histogram of Residuals", y = "Frecuency Residuals", x = "Residuals")
+```
+
+
+
+## Part 7
+
+
+Make a histogram of the standardized residuals for the fitted model of eNO and age. Use a few different `bin` choices in the `geom_histogram()` function to see how the histogram changes. How would you characterize the shape of the histogram here? Do any of the linear regression model assumptions appear to be violated?
+
+```{r}
+#| results: asis
+#| warning: false
+ggplot(augment(fit_eNO_age), aes(x = .resid)) +
+  geom_histogram(bins = 25) +
+  labs(title = "Histogram of Residuals", y = "Frecuency of Residuals", x = "Residuals")
+```
+
+Based on the plot we can see that one of the assumptions for making inference from linear regression models is violated; precisely that the residuals follow a normal distribution centered around 0. 
+
+
+*Discussion*
+
+I actually plotted my histogram before seeing that I had to do it here as well because I had a hunch that the residuals would not describe a normal distribution, let alone centered around 0, which I could confirm plotting the histogram with several *bin* values.
+
+
+## Part 8
+
+Create a new dataset that replaces eNO with the log of eNO (using the `log()` function). Store this new dataset in an object called `dataset2`.
+
+Using `dataset2`, fit a new linear regression model with the (now log-transformed) eNO variable as the response and age as the predictor.
+
+1. Make a plot of the residuals vs. fitted values for this new model (residuals on the y-axis, fitted values on the x-axis). 
+
+2. Also make a histogram of the standardized residuals from this new model.
+
+How would you characterize the fit of this model versus the fit of the previous model that did not use the log-transformed eNO variable? Which model is preferable, based on the diagnostic plots you have seen?
+
+```{r}
+#| results: asis
+#| warning: false
+dataset2 <- dataset |> mutate(log_eNO = log(eNO))
+fit_log_eNO_age <-lm(log_eNO ~ age, data = dataset2)
+
+ggplot()+
+  geom_point(data = augment(fit_log_eNO_age), aes(x = .fitted, y = .resid)) +
+
+  labs(title = "Scatterplot of residuals vs fitted values on Log(eNO) ~ age",
+       x = "fitted log(eNO) Values",
+       y = "residuals") +
+  theme_bw ()
+```
+
+1. This regression looks better than the previous one because the residuals are centered around 0 for pretty much all fitted values. Also as in the initial analysis there is high variability in the residuals for a given log(`eNO`) value, which is in line with what I said previously about the `age` and the `eNO` variables, for roughly the same `age`, `eNO` spans across several values making the relationship harder to calculate and that's why we see a consistent high spread of residuals around 0.
+
+
+```{r}
+#| results: asis
+#| warning: false
+ggplot(augment(fit_log_eNO_age), aes(x = .resid)) +
+  geom_histogram(bins = 10) +
+  labs(title = "Histogram of Residuals", y = "Frecuency of Residuals", x = "Residuals")
+```
+
+2. It looks better now, it looks more like a normal distribution centered around 0, though it is a little skewed to the left. Based on the two plots I would say that the the new linear regression model doesn't violate the assumptions to make inferences.
+
+
+## Part 9
+
+Create a new dataset that takes the original `dataset` object and transforms the `mouse` variable by taking the log transformation of `mouse`. Store this new dataset in an R object named `dataset3`.
+
+For this part we will focus on the outcome `cough_days`. Based on what we know of allergic disease, children should only have a response to mouse allergen if they are in fact allergic to mouse allergen. Let's examine this hypothesis as follows:
+
+1. Create a new dataset called `dataset3yes` that contains only those individuals in `dataset3` who have `mouse_allergic == "yes"`. Using `dataset3yes`, fit a linear model with `cough_days` as the outcome and `mouse` as the predictor.
+
+2. Create a new dataset called `dataset3no` that contains only those individuals in `dataset3` who have `mouse_allergic == "no"`. Using `dataset3no`, fit a linear model with `cough_days` as the outcome and `mouse` as the predictor.
+
+For each analysis, describe what is the relationship between mouse allergen and days with coughing or wheezing (`cough_days`). Interpret the coefficient for `mouse` in each of the models.
+
+```{r}
+#| results: asis
+#| warning: false
+dataset3 <- dataset |> mutate(log_mouse = log(mouse))
+dataset3yes <- dataset3 |> filter(mouse_allergic == 'yes')
+dataset3no <- dataset3 |> filter(mouse_allergic == 'no')
+```
+
+```{r}
+#| warning: false
+fit_cough_days_log_mouse_yes <- lm(cough_days ~ log_mouse, data = dataset3yes )
+fit_cough_days_log_mouse_yes
+```
+
+1. For the first part I fit the model using the `dataset3yes` using only those children that are allergic to mouse and found that there is a negative correlation between the log transformation of mouse allergen and coughing days, meaning that the greater the log transformation of mouse allergen is the less days they spent coughing or wheezing.  Which is weird because I would've expected the relationship to be positive in this setting, however this could be due to the fact that the effect of the allergy is not coughing or wheezing but another reaction maybe on their skin.
+
+
+```{r}
+#| warning: false
+fit_cough_days_log_mouse_no <- lm(cough_days ~ log_mouse, data = dataset3no )
+fit_cough_days_log_mouse_no
+```
+
+2. For this setting I've used the children with **no** mouse allergies and correlated the number of days they spent coughing with the log transformation of the mouse allergen present on their bed, and found that there is a positive correlation between the two, meaning that the more allergen present on their bed the more time they spend coughing or wheezing; Which could be explained by the fact that these children do not have an allergy but the mouse allergen has an effect on them.
+
+
+## Part 10
+
+Make a scatterplot of `cough_days` (y-axis) and `mouse` (x-axis), with a separate panel for those who are not mouse allergic and those who are mouse allergic (you can use `facet_wrap()` for this) using `dataset3`. In each plot, overlay the linear regression line fit using `geom_smooth(method = "lm")`.
+
+Are the relationships shown in the plots what you would have expected to see given what we know about allergic disease? 
+
+```{r}
+#| results: asis
+#| warning: false
+ggplot(dataset3, aes(x = log_mouse, y=cough_days))+
+  geom_point()+
+  geom_smooth(method = "lm")+
+  labs(title = "Scatterplot of cough days vs log(mouse)",
+    y = "cough days", x = "log transformation of mouse allergen present in child's bed")+
+  theme_bw()+
+  facet_wrap(~mouse_allergic, ncol = 2)
+```
+
+Based on the plot, the regression is not what I would've expected, and I think the regression line takes that shape because of the variability in the data, and how some children in both groups have high and low cough days levels regardless of the mouse allergen present on their beds.
+
+The number of cough days could be explained by other environmental factors, such as the quality of the air they breath in combination with the mouse allergen present on their beds. **One note** that I would like to make though, based on my visual analysis, is that  removing extremely high cough days values would result in opposite trends, i.e. negative correlation in the children with no allergies to mouse and a positive one in children with the allergy
+
+
+
+## Part 11
+
+Using the `dataset3` object, fit a linear regression model with FEV1 as the outcome and age, gender, PM2.5, NO2, mouse allergen, and mouse allergic status as the predictors in the model. Compute 95% confidence intervals for each of the coefficients in the model.
+
+If we were going to collect data on a much larger sample of children, which of the three indoor pollutants---PM2.5, NO2, or mouse allergen---would most likely have a relationship similar to the one that we observe in this dataset?
+
+```{r}
+#| warning: false
+fit_FEV1_Several_predictors <- lm(fev1 ~ age +gender+ pm25 + no2 + 
+                                    log_mouse + mouse_allergic, data = dataset3)
+confint(fit_FEV1_Several_predictors)
+```
+By looking at the 95% confidence interval for the three pollutants, I would say that **mouse allergen** would have the most impact on FEV1 values, because of the value of the coefficient using those bounds.
+
+
+## Part 12
+
+Make a scatterplot of the residuals versus the fitted values from this model. Describe what you see in the residuals and if there are any violations of the linear regression model assumptions evident in the plot.
+
+```{r}
+## Add your code here
+ggplot()+
+  geom_point(data = augment(fit_FEV1_Several_predictors), aes(x = .fitted, y = .resid)) +
+
+  labs(title = "Scatterplot of residuals vs fitted values of FEV1 ~ Several variables",
+       x = "fitted FEV1 Values",
+       y = "residuals") +
+  theme_bw ()
+```
+Based on the plot I can say that the residuals have a normal distribution centered around 0, so in principle they don't violate the assumptions for linear regressions. But I can also see that the greater the `FEV1` fitted values the greater the variability of the residuals, so It could mean that predicting greater values of `FEV1` using the predictors is more difficult because the inherent relationship between the variables fades as `FEV1` increases.
+
+
+## Part 13
+
+Identify the observations with the two largest residuals in absolute value. How would you describe these two children and why do you think they have such large residuals from the model?
+
+
+```{r}
+knitr::kable(augment(fit_FEV1_Several_predictors) |>   arrange(desc(abs(.resid))) |> slice_head(n = 2))
+
+```
+
+I think their `age` is the defining criteria for why they have such large residuals. Even though the other parameters help at fitting the `FEV1`, a fact we were able to established in Part 1 of this document is that as age increases the variability of `FEV1` increases so the model cannot predict with the same power. Also I would say these two children don't really have much in common, not `gender`, `mouse allergies`, `pm.25`, `NO2` and even the response variable `FEV1`.
+
+ 
+## Part 14
+
+Suppose you had the ability to improve the fit of the model by collecting data on a new variable. What data would you most like to collect to improve this model? Why?
+
+If could collect more data, I would try to get **more habits-related information**, such as food, if they regularly practice a sport or not, if they have pets at home and what kind of pet. These would me help understand how they live and try to explain the difference in `FEV1` values from that.
+
+I think whether they **practice sports** or not would be a great start.
+
