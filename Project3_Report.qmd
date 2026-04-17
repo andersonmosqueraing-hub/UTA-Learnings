@@ -1,0 +1,190 @@
+---
+title: "DSC 395 - Project 3 Report"
+format: html
+---
+
+## Name and EID
+
+Anderson Mosquera Ruiz
+am238978
+
+## Setup
+
+```{r}
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(tidymodels)
+## Load any additional packages that you need here
+library(dplyr)
+library(rsample)
+library(ggplot2)
+set.seed(395)
+```
+
+Read in the data with `read_csv()` and check the data to make sure all of the expected observations and variables are there.
+
+```{r}
+#| message: false
+
+## Read in the data
+pm <- read_csv("pmFRM.csv.gz")
+img_dat <- read_csv("image_data.csv.bz2")
+```
+
+
+The following annotated code is used to visualize a single image from a specific date and color band. You can feel free to modify it to visualize other dates or color bands. You can also delete this block if you want as it does not play a role in the analysis that follows.
+
+```{r}
+img_dat |>
+    ## Select a specific date and band
+    filter(date == "2017-03-23",
+           band == "band1") |>
+    ## Select the pixel values
+    select(value) |>
+    ## Construct the grid/matrix corresponding to the pixel values
+    bind_cols(expand_grid(col = 1:24, row = 1:24)) |>
+    ## Setup the rows/columns of the image grid
+    ggplot(aes(row, col)) +
+    ## Fill the grid squares with pixel values
+    geom_raster(aes(fill = value)) +
+    ## Fix the aspect ratio to be 1:1
+    coord_fixed() +
+    ## Use Viridis color palette for pixel values
+    scale_fill_viridis_c() +
+    ## Remove background clutter
+    theme_void()
+```
+
+
+
+## Part 1: Prepare the data
+
+The data in `img_dat` are in a long form and not suitable for use in the Tidymodels framework. The first thing you will need to do is to reshape the data using `pivot_wider()` so that there is one pixel/band combination per column. The data should look something like the following:
+
+```
+# A tibble: 1,217 × 2,305
+   date       pixel001_band1 pixel001_band2 pixel001_band3 pixel001_band4
+   <date>              <dbl>          <dbl>          <dbl>          <dbl>
+ 1 2017-01-25          6185           5949           5631            4190
+ 2 2017-02-08          3449           3374           3316            2254
+ 3 2017-02-12          8630           7982           6938            4593
+ 4 2017-02-13          6507           6250           5775            4244
+ 5 2017-02-15          6706           6580           6137            4694
+ 6 2017-02-19          6029           5907           5339            4069
+ 7 2017-03-04          5643           5384           4532            3171
+ 8 2017-03-15          9220           8468           7475            5631
+ 9 2017-03-21          9074.          9062.          8644.           6881
+10 2017-03-23          8949           8702           8387            6044
+```
+
+```{r}
+
+image_data <- img_dat |>
+  pivot_wider(
+    names_from = c(pixel, band),
+    values_from = value
+  )
+
+```
+
+Next, you will need to join the data with the outcome data in the `pm` data frame. 
+
+```{r}
+complete_data <- left_join(image_data, pm, by = c("date" = "date"))
+
+```
+
+Now split the data into training and testing datasets. Use 3/4 of the data for training and the remaining 1/4 for testing. Store the training data in a separate R object and leave the testing data aside for now.
+
+```{r}
+data_split <- initial_split(complete_data, prop = 0.75)
+training_data <- training(data_split)
+testing_data  <- testing(data_split)
+```
+{{< pagebreak >}}
+
+## Part 4: Incorporate the image data
+
+We will now incorporate the image pixel data and use a wider range of fitting algorithms to build a prediction model.
+
+1. Choose a machine learning model for this part of the analysis. Ones we have seen already are `nearest_neighbor()`, `rand_forest()`, and `decision_tree()`. But feel free to use a different one if you wish. You can find a [list of possible models](https://www.tidymodels.org/find/parsnip/) on the Tidymodels web site. If you use a different model, you may need to install additional packages.
+2. Identify the tuning parameters for your chosen model.
+3. Specify a recipe using all the variables in the dataset
+4. Create a workflow that assembles your recipe and your model specification.
+5. Use 10-fold cross-validation to estimate the root mean squared error (RMSE) and the R-squared for your model in the training data.
+6. Tune your model using a range of possible tuning parameters to identify the best-predicting model
+
+Try to build a model that out-performs the linear regression model from the previous part.
+
+NOTE: Doing the cross-validation and model tuning here may take a *significant* amount of time depending on your choice of tuning parameters and the speed of your computer. You may need to be patient with the process here.
+
+For each fo them print RSME and R-squared
+
+
+```{r}
+#| cache: true
+#| eval: false
+all_cores <- parallel::detectCores(logical = FALSE)
+cl <- makePSOCKcluster(all_cores - 1)
+registerDoParallel(cl)
+
+#Nearest Neighbors
+#Recipe
+rec <- recipe(pmFRM ~ ., data = training_data) |>
+  step_rm(date) |>
+  step_normalize(all_numeric_predictors())
+
+#model
+knn_spec <- nearest_neighbor(
+  neighbors = 100,           
+  weight_func = "rectangular", #  tune()
+  dist_power = 2               #  tune() (2 = Euclidean distance)
+) |>
+  set_engine("kknn") |>
+  set_mode("regression")
+
+#Workflow
+knn_wf <- workflow() |>
+  add_recipe(rec) |>
+  add_model(knn_spec)
+
+#Produce results tunning the number of neighbors
+#knn_results <- tune_grid(
+#  knn_wf,
+#  resamples = vfold_cv(training_data  , v = 10),
+#  grid = 100
+#)
+
+knn_results <- knn_wf |>
+  fit_resamples(
+    resamples = vfold_cv(training_data, v = 10),
+    control = control_resamples(save_pred = TRUE)
+  )
+
+stopCluster(cl)
+registerDoSEQ()
+
+#Results
+all_metrics <- knn_results |>
+  collect_metrics()
+
+all_metrics
+```
+
+I tried tunning the hyperparamters to find optimal performance but my computer took to long to produce the actual results, so I stuck with some hyperparameters, Also I applied parallel processing to try and speed things up.
+
+The hyperparameters selected are:
+
+* neighbors = 100
+* weight_func = Rectangular
+* dist_power = 2 (for euclidean distance)
+
+The results are:
+
+* RSME = 4.24
+* R-squared = 0.0143
+
+
+{{< pagebreak >}}
